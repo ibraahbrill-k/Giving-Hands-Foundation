@@ -10,11 +10,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const FUNCS = `${SUPABASE_URL}/functions/v1`;
 
-export function initiatePayment(amount: number, phone: string) {
+export function initiatePayment(amount: number, phone: string, method: 'mobile' | 'card') {
   return fetch(`${FUNCS}/initiate-payment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, phone }),
+    body: JSON.stringify({ amount, phone, method }),
   }).then((r) => r.json());
 }
 

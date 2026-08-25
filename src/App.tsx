@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FUNDRAISER, MANUAL_MPESA, PRESET_AMOUNTS, formatKes } from './lib/config';
+import { FUNDRAISER, MANUAL_MPESA, PRESET_AMOUNTS, detectNetwork, formatKes } from './lib/config';
 import { fetchRaisedTotal, initiatePayment, verifyPayment } from './lib/supabase';
 
 type Phase = 'idle' | 'initiating' | 'awaiting-pin' | 'success' | 'failed' | 'error';
+
+function NetworkIcon({ net, className = 'h-6 w-auto' }: { net: 'mpesa' | 'airtel'; className?: string }) {
+  return (
+    <img
+      src={net === 'mpesa' ? '/images/mpesa.png' : '/images/airtel.png'}
+      alt={net === 'mpesa' ? 'M-Pesa' : 'Airtel Money'}
+      className={className}
+      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+    />
+  );
+}
 
 function CrossMark({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -22,7 +33,44 @@ export default function App() {
   const [showManual, setShowManual] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
   const [paidReference, setPaidReference] = useState('');
+  const [method, setMethod] = useState<'mobile' | 'card'>('mobile');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Returning from Paystack card checkout: ?reference=... in the URL
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('reference');
+    if (ref && /^SM-\d{13}-[a-f0-9]{8}$/.test(ref)) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setPhase('awaiting-pin');
+      setStatusText('Confirming your payment...');
+      pollRef.current = null;
+      // reuse the polling logic
+      (async () => {
+        for (let i = 0; i < 15; i++) {
+          try {
+            const res = await verifyPayment(ref);
+            if (res.status === 'success') {
+              setPaidReference(ref);
+              if (res.amount) setPaidAmount(Math.round(res.amount / 100));
+              setPhase('success');
+              fetchRaisedTotal().then(setRaisedCents).catch(() => {});
+              return;
+            }
+            if (res.status === 'failed' || res.status === 'abandoned') {
+              setPhase('failed');
+              setStatusText('The card payment was not completed.');
+              return;
+            }
+          } catch {
+            /* keep checking */
+          }
+          await new Promise((r) => setTimeout(r, 4000));
+        }
+        setPhase('failed');
+        setStatusText('We could not confirm the payment. If you were charged, contact us with reference ' + ref + '.');
+      })();
+    }
+  }, []);
 
   useEffect(() => {
     fetchRaisedTotal()
@@ -63,6 +111,7 @@ export default function App() {
         if (res.status === 'success') {
           clearInterval(pollRef.current!);
           setPaidReference(reference);
+          if (res.amount) setPaidAmount(Math.round(res.amount / 100));
           setPhase('success');
           setStatusText('');
           fetchRaisedTotal()
@@ -90,10 +139,47 @@ export default function App() {
     setPhase('initiating');
     setStatusText('');
     try {
-      const res = await initiatePayment(effectiveAmount, phone);
-      if (res.error || !res.reference) {
+      const res = await initiatePayment(
+        effectiveAmount,
+        method === 'card' ? '' : phone,
+        method
+      );
+      if (res.error) {
         setPhase('error');
-        setStatusText(res.error ?? 'Could not start the payment. Please try again.');
+        setStatusText(res.error);
+        return;
+      }
+
+      if (method === 'card') {
+        // Paystack Inline popup — secure card form hosted by Paystack
+        const PaystackPop = (window as any).PaystackPop;
+        if (!PaystackPop) {
+          setPhase('error');
+          setStatusText('Payment window could not load. Please check your connection.');
+          return;
+        }
+        const handler = PaystackPop.setup({
+          key: 'pk_test_b6a603da841fe976938397d62d077607a143bc02',
+          email: res.email,
+          amount: effectiveAmount * 100,
+          currency: 'KES',
+          ref: res.reference,
+          callback: (response: any) => {
+            setPaidAmount(effectiveAmount);
+            pollForSuccess(response.reference);
+          },
+          onClose: () => {
+            setPhase('idle');
+            setStatusText('');
+          },
+        });
+        handler.openIframe();
+        return;
+      }
+
+      if (!res.reference) {
+        setPhase('error');
+        setStatusText('Could not start the payment. Please try again.');
         return;
       }
       setPaidAmount(effectiveAmount);
@@ -102,7 +188,7 @@ export default function App() {
       setPhase('error');
       setStatusText('Network error. Please check your connection and try again.');
     }
-  }, [effectiveAmount, phone, pollForSuccess]);
+  }, [effectiveAmount, phone, method, pollForSuccess]);
 
   const onShare = useCallback(async () => {
     const url = window.location.href;
@@ -126,6 +212,7 @@ export default function App() {
   }, []);
 
   const busy = phase === 'initiating' || phase === 'awaiting-pin';
+  const network = detectNetwork(phone);
 
   const onDonateAgain = useCallback(() => {
     setPhase('idle');
@@ -239,7 +326,8 @@ export default function App() {
 
             <p className="mt-10 max-w-md text-sm leading-relaxed text-stone-500 animate-fade-up" style={{ animationDelay: '1.1s' }}>
               Every single contribution moves us closer to the {formatKes(FUNDRAISER.targetKes)}{' '}
-              goal. May God bless you abundantly for standing with the family.
+              goal. May God bless you abundantly for standing with the family —{' '}
+              <span className="font-semibold italic text-stone-700">Mungu akubariki sana.</span>
             </p>
           </div>
         </section>
@@ -393,31 +481,130 @@ export default function App() {
                 className="mt-3 w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
               />
 
-              <label
-                htmlFor="mpesa-phone"
-                className="mb-1.5 mt-5 block text-xs font-bold uppercase tracking-wider text-stone-500"
-              >
-                M-Pesa phone number
-              </label>
-              <input
-                id="mpesa-phone"
-                inputMode="tel"
-                placeholder="07XX XXX XXX"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.slice(0, 16))}
-                className="w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
-              />
-              <p className="mt-2 text-xs leading-relaxed text-stone-500">
-                We will send an M-Pesa prompt to this number for approval.
-              </p>
+              {/* Payment method tabs */}
+              <div className="mt-5 grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setMethod('mobile')}
+                  className={`flex items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-semibold transition-colors ${
+                    method === 'mobile'
+                      ? 'border-brand-900 bg-brand-900 text-white'
+                      : 'border-stone-300 bg-white text-stone-700 hover:border-brand-600'
+                  }`}
+                >
+                  Mobile Money
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMethod('card')}
+                  className={`flex items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-semibold transition-colors ${
+                    method === 'card'
+                      ? 'border-brand-900 bg-brand-900 text-white'
+                      : 'border-stone-300 bg-white text-stone-700 hover:border-brand-600'
+                  }`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <path d="M2 10h20" />
+                  </svg>
+                  Card
+                  <span className={`ml-0.5 flex items-center gap-1 rounded-full px-1.5 py-0.5 ${method === 'card' ? 'bg-white' : 'bg-stone-100'}`}>
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg"
+                      alt="Visa"
+                      className="h-2.5 w-auto"
+                    />
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg"
+                      alt="Mastercard"
+                      className="h-3 w-auto"
+                    />
+                  </span>
+                </button>
+              </div>
+
+              {method === 'mobile' ? (
+                <>
+                  <label
+                    htmlFor="mpesa-phone"
+                    className="mb-1.5 mt-5 block text-xs font-bold uppercase tracking-wider text-stone-500"
+                  >
+                    Phone number — M-Pesa or Airtel Money
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="mpesa-phone"
+                      inputMode="tel"
+                      placeholder="07XX XXX XXX"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value.slice(0, 16))}
+                      className="w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 pr-24 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                    />
+                    {network && (
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold uppercase tracking-wide text-brand-700">
+                        {network === 'mpesa' ? 'Safaricom' : 'Airtel'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Network tiles */}
+                  <div className="mt-4 grid grid-cols-2 gap-2.5">
+                    {(['mpesa', 'airtel'] as const).map((net) => {
+                      const active = network === net;
+                      return (
+                        <div
+                          key={net}
+                          className={`flex h-16 items-center justify-center rounded-lg border bg-white transition-all ${
+                            active ? 'border-brand-900 ring-1 ring-brand-900' : 'border-stone-200 opacity-50'
+                          }`}
+                        >
+                          <NetworkIcon net={net} className="h-7 w-auto" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-stone-500">
+                    {network
+                      ? `Paying with ${network === 'mpesa' ? 'M-Pesa' : 'Airtel Money'} — approve the prompt on your phone to complete the donation.`
+                      : 'We detect your network automatically from the number you enter.'}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-4 text-xs leading-relaxed text-stone-500">
+                  You will be redirected to Paystack&apos;s secure checkout to enter your Visa or
+                  Mastercard details. Your card details never touch this website.
+                </p>
+              )}
 
               <button
                 type="button"
                 onClick={onDonate}
                 disabled={busy}
-                className="mt-6 flex w-full items-center justify-center rounded-lg bg-brand-900 py-3.5 text-base font-bold text-white transition-colors hover:bg-brand-700 active:bg-brand-800 disabled:opacity-70"
+                className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-lg bg-brand-900 py-3.5 text-base font-bold text-white transition-colors hover:bg-brand-700 active:bg-brand-800 disabled:opacity-70"
               >
-                {busy ? spinner : 'Donate Now'}
+                {busy ? (
+                  spinner
+                ) : method === 'card' ? (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+                      <rect x="2" y="5" width="20" height="14" rx="2" />
+                      <path d="M2 10h20" />
+                    </svg>
+                    Donate with Card
+                  </>
+                ) : network ? (
+                  <>
+                    <img
+                      src={network === 'mpesa' ? '/images/mpesa.png' : '/images/airtel.png'}
+                      alt=""
+                      className="h-6 w-auto"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    Donate with {network === 'mpesa' ? 'M-Pesa' : 'Airtel Money'}
+                  </>
+                ) : (
+                  'Donate Now'
+                )}
               </button>
 
               {(phase === 'error' || phase === 'failed') && statusText !== '' && (

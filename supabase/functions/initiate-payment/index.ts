@@ -60,8 +60,9 @@ Deno.serve(async (req) => {
   if (rawBody.length > 1024) return json({ error: "payload too large" }, 413);
 
   try {
-    const { amount, phone } = JSON.parse(rawBody);
+    const { amount, phone, method } = JSON.parse(rawBody);
     const amountKes = Math.round(Number(amount));
+    const payMethod = method === "card" ? "card" : "mobile";
     const normalized = normalizeKePhone(String(phone ?? ""));
 
     // ---- validation (server-side, authoritative) ----
@@ -72,8 +73,25 @@ Deno.serve(async (req) => {
     ) {
       return json({ error: `Amount must be between KSh ${MIN_KES} and KSh ${MAX_KES}` }, 400);
     }
-    if (!normalized) {
-      return json({ error: "Enter a valid Safaricom number, e.g. 0728 249 030" }, 400);
+    if (payMethod === "mobile" && !normalized) {
+      return json(
+        { error: "Enter a valid Safaricom or Airtel number, e.g. 0728 249 030" },
+        400
+      );
+    }
+
+    // network detection: Safaricom -> M-Pesa, Airtel -> Airtel Money
+    let provider = "mpesa_offline";
+    if (payMethod === "mobile") {
+      const local = normalized.slice(3);
+      const p = local.slice(0, 2);
+      if (["73", "75"].includes(p)) provider = "atl"; // Airtel Money
+      else if (!["70", "71", "72", "74", "10", "11"].includes(p)) {
+        return json(
+          { error: "Only Safaricom M-Pesa and Airtel Money numbers are supported. For other networks, please pay by card." },
+          400
+        );
+      }
     }
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -115,20 +133,47 @@ Deno.serve(async (req) => {
     // unique reference — idempotency anchor for webhook + verify
     const reference = `SM-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
-    const { data: donation, error: dErr } = await supabase
-      .from("donations")
-      .insert({
-        fundraiser_id: fundraiser.id,
-        reference,
-        amount_cents: amountKes * 100,
-        donor_phone: normalized,
-        client_ip: clientIp,
-      })
-      .select("id")
-      .single();
-    if (dErr) return json({ error: "Could not record donation" }, 500);
+    const donorEmail = `${normalized || `guest-${Date.now()}`}@donors.givinghandsfoundation.org`;
 
-    // ---- Paystack mobile money charge (M-Pesa STK push) ----
+    let donationId: string;
+    if (payMethod === "mobile") {
+      const { data: donation, error: dErr } = await supabase
+        .from("donations")
+        .insert({
+          fundraiser_id: fundraiser.id,
+          reference,
+          amount_cents: amountKes * 100,
+          donor_phone: normalized,
+          client_ip: clientIp,
+        })
+        .select("id")
+        .single();
+      if (dErr) return json({ error: "Could not record donation" }, 500);
+      donationId = donation.id;
+    } else {
+      const { data: donation, error: dErr } = await supabase
+        .from("donations")
+        .insert({
+          fundraiser_id: fundraiser.id,
+          reference,
+          amount_cents: amountKes * 100,
+          donor_phone: "-", // card donors have no mobile number
+          client_ip: clientIp,
+        })
+        .select("id")
+        .single();
+      if (dErr) return json({ error: "Could not record donation" }, 500);
+      donationId = donation.id;
+    }
+
+    let psData: any;
+
+    if (payMethod === "card") {
+      // ---- Card: donation recorded, Paystack Inline popup collects card details ----
+      return json({ reference, email: donorEmail });
+    }
+
+    // ---- Paystack mobile money charge (M-Pesa / Airtel Money STK push) ----
     const psRes = await fetch("https://api.paystack.co/charge", {
       method: "POST",
       headers: {
@@ -136,18 +181,16 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        // Paystack rejects non-real TLDs, so derive a plausible donor address
-        email: `${normalized}@donors.givinghandsfoundation.org`,
+        email: donorEmail,
         amount: amountKes * 100, // subunit: KES cents
         currency: "KES",
         reference,
-        // This Paystack account's M-Pesa STK channel
-        mobile_money: { phone: normalized, provider: "mpesa_offline" },
-        metadata: { reference, donation_id: donation.id },
+        mobile_money: { phone: normalized, provider },
+        metadata: { reference, donation_id: donationId },
       }),
     });
 
-    const psData = await psRes.json();
+    psData = await psRes.json();
 
     if (!psData.status) {
       // charge rejected — mark failed so money can't silently vanish mid-flight

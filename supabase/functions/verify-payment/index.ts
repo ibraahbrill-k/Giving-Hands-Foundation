@@ -34,12 +34,15 @@ Deno.serve(async (req) => {
 
     const { data: donation } = await supabase
       .from("donations")
-      .select("status")
+      .select("status, amount_cents")
       .eq("reference", reference)
       .single();
 
     if (donation?.status === "success" || donation?.status === "failed") {
-      return json({ status: donation.status });
+      return json({
+        status: donation.status,
+        ...(donation.status === "success" ? { amount: donation.amount_cents } : {}),
+      });
     }
 
     // Ask Paystack directly
@@ -68,9 +71,11 @@ Deno.serve(async (req) => {
           .from("donations")
           .update({ status: "success", paystack_id: psData.data.id })
           .eq("reference", reference);
-        return json({ status: "success" });
+        return json({ status: "success", amount: row.amount_cents });
       }
-      if (row?.status === "success") return json({ status: "success" });
+      if (row?.status === "success") {
+        return json({ status: "success", amount: row.amount_cents });
+      }
       return json({ error: "amount mismatch - flagged" }, 409);
     }
 
