@@ -165,23 +165,43 @@ export default function App() {
         /* Thank-you screen */
         <section className="bg-stone-50">
           <div className="mx-auto flex max-w-xl flex-col items-center px-6 py-16 text-center sm:py-24">
-            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-900 text-white">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-9 w-9" aria-hidden="true">
-                <path d="M20 6L9 17l-5-5" />
+            <div className="relative flex h-24 w-24 animate-pop-in items-center justify-center">
+            <span className="absolute inset-0 rounded-full border-2 border-brand-500 animate-ring-pulse" />
+            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-[inset_0_0_0_2px_rgba(255,255,255,1)]">
+              <svg viewBox="0 0 52 52" className="h-14 w-14" aria-hidden="true">
+                <circle
+                  cx="26" cy="26" r="24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  className="text-brand-600 animate-draw-circle"
+                  strokeLinecap="round"
+                  transform="rotate(-90 26 26)"
+                />
+                <path
+                  d="M15 27l8 8 15-16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-brand-900 animate-draw-tick"
+                />
               </svg>
             </span>
+          </div>
 
-            <h1 className="mt-7 text-3xl font-extrabold tracking-tight text-stone-900 sm:text-4xl">
-              Asante sana! Thank you so much.
-            </h1>
-            <p className="mt-4 max-w-md text-lg leading-relaxed text-stone-600">
-              Your donation of{' '}
-              <span className="font-bold text-stone-900">{formatKes(paidAmount)}</span> has been
-              received. Your kindness brings real relief to Sylvia's Mum and the whole family
-              during this difficult time.
-            </p>
+          <h1 className="mt-7 text-3xl font-extrabold tracking-tight text-stone-900 sm:text-4xl animate-fade-up" style={{ animationDelay: '0.5s' }}>
+            Asante sana! Thank you so much.
+          </h1>
+          <p className="mt-4 max-w-md text-lg leading-relaxed text-stone-600 animate-fade-up" style={{ animationDelay: '0.65s' }}>
+            Your donation of{' '}
+            <span className="font-bold text-stone-900">{formatKes(paidAmount)}</span> has been
+            received. Your kindness brings real relief to Sylvia's Mum and the whole family
+            during this difficult time.
+          </p>
 
-            <div className="mt-10 w-full rounded-2xl border border-stone-200 bg-white">
+          <div className="mt-10 w-full rounded-2xl border border-stone-200 bg-white animate-fade-up" style={{ animationDelay: '0.8s' }}>
               <div className="flex items-center justify-between border-b border-stone-200 px-6 py-4">
                 <span className="text-sm font-medium text-stone-500">Amount received</span>
                 <span className="text-[15px] font-bold text-stone-900">
@@ -200,7 +220,7 @@ export default function App() {
               to your phone by Safaricom.
             </p>
 
-            <div className="mt-8 flex w-full flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex w-full flex-col gap-3 sm:flex-row animate-fade-up" style={{ animationDelay: '0.95s' }}>
               <button
                 type="button"
                 onClick={onDonateAgain}
@@ -217,7 +237,7 @@ export default function App() {
               </button>
             </div>
 
-            <p className="mt-10 max-w-md text-sm leading-relaxed text-stone-500">
+            <p className="mt-10 max-w-md text-sm leading-relaxed text-stone-500 animate-fade-up" style={{ animationDelay: '1.1s' }}>
               Every single contribution moves us closer to the {formatKes(FUNDRAISER.targetKes)}{' '}
               goal. May God bless you abundantly for standing with the family.
             </p>
