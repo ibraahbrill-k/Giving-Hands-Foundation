@@ -285,7 +285,8 @@ export default function App() {
             Your donation of{' '}
             <span className="font-bold text-stone-900">{formatKes(paidAmount)}</span> has been
             received. Your kindness brings real relief to Sylvia's Mum and the whole family
-            during this difficult time.
+            during this difficult time —{' '}
+            <span className="font-semibold italic text-stone-700">Mungu akubariki sana.</span>
           </p>
 
           <div className="mt-10 w-full rounded-2xl border border-stone-200 bg-white animate-fade-up" style={{ animationDelay: '0.8s' }}>
@@ -326,8 +327,7 @@ export default function App() {
 
             <p className="mt-10 max-w-md text-sm leading-relaxed text-stone-500 animate-fade-up" style={{ animationDelay: '1.1s' }}>
               Every single contribution moves us closer to the {formatKes(FUNDRAISER.targetKes)}{' '}
-              goal. May God bless you abundantly for standing with the family —{' '}
-              <span className="font-semibold italic text-stone-700">Mungu akubariki sana.</span>
+              goal. Thank you for standing with the family.
             </p>
           </div>
         </section>
