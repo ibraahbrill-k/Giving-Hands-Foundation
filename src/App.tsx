@@ -143,11 +143,16 @@ export default function App() {
       <header className="sticky top-0 z-50 border-b border-stone-200/80 bg-white/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
           <a href="#top" className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-900 text-white">
-              <CrossMark className="h-4 w-4" />
-            </span>
+            <img
+              src="/images/logo.png"
+              alt="Giving Hands Foundation logo"
+              className="h-9 w-9 rounded-lg object-contain"
+            />
             <span className="text-[15px] font-bold tracking-tight text-stone-900">
-              Sylvia's Mum Medical Fund
+              Giving Hands
+              <span className="font-medium text-stone-500">
+                {' '}· Sylvia&apos;s Mum Medical Fund
+              </span>
             </span>
           </a>
           <a
@@ -440,7 +445,7 @@ export default function App() {
             <CrossMark className="h-3.5 w-3.5" />
           </span>
           <p className="text-sm font-semibold text-stone-700">
-            Medical Fund for Sylvia's Mum
+            Giving Hands Foundation · Medical Fund for Sylvia&apos;s Mum
           </p>
           <p className="text-xs text-stone-400">Thank you for your support</p>
         </div>
