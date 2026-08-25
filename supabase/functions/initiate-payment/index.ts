@@ -136,11 +136,13 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        email: `${normalized}@donors.medicalfund.local`, // Paystack requires an email
+        // Paystack rejects non-real TLDs, so derive a plausible donor address
+        email: `${normalized}@donors.givinghandsfoundation.org`,
         amount: amountKes * 100, // subunit: KES cents
         currency: "KES",
         reference,
-        mobile_money: { phone: normalized, provider: "mpesa" },
+        // This Paystack account's M-Pesa STK channel
+        mobile_money: { phone: normalized, provider: "mpesa_offline" },
         metadata: { reference, donation_id: donation.id },
       }),
     });
