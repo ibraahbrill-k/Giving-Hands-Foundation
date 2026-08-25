@@ -157,12 +157,15 @@ Deno.serve(async (req) => {
           fundraiser_id: fundraiser.id,
           reference,
           amount_cents: amountKes * 100,
-          donor_phone: "-", // card donors have no mobile number
+          donor_phone: null, // card donors have no mobile number
           client_ip: clientIp,
         })
         .select("id")
         .single();
-      if (dErr) return json({ error: "Could not record donation" }, 500);
+      if (dErr) {
+        console.error(dErr);
+        return json({ error: "Could not record donation" }, 500);
+      }
       donationId = donation.id;
     }
 
@@ -193,12 +196,18 @@ Deno.serve(async (req) => {
     psData = await psRes.json();
 
     if (!psData.status) {
-      // charge rejected — mark failed so money can't silently vanish mid-flight
-      await supabase
-        .from("donations")
-        .update({ status: "failed", failure_reason: String(psData.message ?? "paystack error").slice(0, 500) })
-        .eq("reference", reference);
-      return json({ error: psData.message ?? "Payment could not be started" }, 502);
+      // Some gateways return status:false with "Charge attempted" while the
+      // prompt is actually in flight — only mark failed when Paystack says so.
+      const inFlight =
+        psData.message === "Charge attempted" ||
+        (psData.data && !["failed", "abandoned"].includes(psData.data.status));
+      if (!inFlight) {
+        await supabase
+          .from("donations")
+          .update({ status: "failed", failure_reason: String(psData.message ?? "paystack error").slice(0, 500) })
+          .eq("reference", reference);
+        return json({ error: psData.data?.gateway_response ?? psData.message ?? "Payment could not be started" }, 502);
+      }
     }
 
     return json({
