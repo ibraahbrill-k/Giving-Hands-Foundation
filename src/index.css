@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-50: #f4f7fb;
+  --color-brand-100: #e7eef6;
+  --color-brand-200: #cbdae9;
+  --color-brand-300: #a3bdd6;
+  --color-brand-400: #6f94ba;
+  --color-brand-500: #4a719b;
+  --color-brand-600: #35587d;
+  --color-brand-700: #284663;
+  --color-brand-800: #1d344b;
+  --color-brand-900: #132436;
+}
+
+html {
+  scroll-behavior: smooth;
+}

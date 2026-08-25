@@ -1,0 +1,383 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FUNDRAISER, MANUAL_MPESA, PRESET_AMOUNTS, formatKes } from './lib/config';
+import { fetchRaisedTotal, initiatePayment, verifyPayment } from './lib/supabase';
+
+type Phase = 'idle' | 'initiating' | 'awaiting-pin' | 'success' | 'failed' | 'error';
+
+function CrossMark({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
+    </svg>
+  );
+}
+
+export default function App() {
+  const [raisedCents, setRaisedCents] = useState(0);
+  const [amount, setAmount] = useState(500);
+  const [customAmount, setCustomAmount] = useState('');
+  const [phone, setPhone] = useState('');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [statusText, setStatusText] = useState('');
+  const [showManual, setShowManual] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    fetchRaisedTotal()
+      .then(setRaisedCents)
+      .catch(() => {});
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    },
+    []
+  );
+
+  const effectiveAmount =
+    customAmount !== '' ? Math.round(Number(customAmount.replace(/\D/g, '')) || 0) : amount;
+
+  const raisedKes = Math.floor(raisedCents / 100);
+  const progress = Math.min(1, raisedKes / FUNDRAISER.targetKes);
+  const remainingKes = Math.max(0, FUNDRAISER.targetKes - raisedKes);
+
+  const pollForSuccess = useCallback((reference: string) => {
+    setPhase('awaiting-pin');
+    setStatusText('An M-Pesa prompt has been sent to your phone. Enter your PIN to confirm.');
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts += 1;
+      if (attempts > 30) {
+        clearInterval(pollRef.current!);
+        setPhase('failed');
+        setStatusText(
+          `The request timed out. If you already entered your PIN, your contribution is safe — reach out to us with reference ${reference}.`
+        );
+        return;
+      }
+      try {
+        const res = await verifyPayment(reference);
+        if (res.status === 'success') {
+          clearInterval(pollRef.current!);
+          setPhase('success');
+          setStatusText('');
+          fetchRaisedTotal()
+            .then(setRaisedCents)
+            .catch(() => {});
+        } else if (res.status === 'failed' || res.status === 'abandoned') {
+          clearInterval(pollRef.current!);
+          setPhase('failed');
+          setStatusText(
+            'The payment was not completed. No money has left your account unless you confirmed the prompt.'
+          );
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    }, 4000);
+  }, []);
+
+  const onDonate = useCallback(async () => {
+    if (effectiveAmount < 50) {
+      setPhase('error');
+      setStatusText('Please choose an amount of at least KSh 50.');
+      return;
+    }
+    setPhase('initiating');
+    setStatusText('');
+    try {
+      const res = await initiatePayment(effectiveAmount, phone);
+      if (res.error || !res.reference) {
+        setPhase('error');
+        setStatusText(res.error ?? 'Could not start the payment. Please try again.');
+        return;
+      }
+      pollForSuccess(res.reference);
+    } catch {
+      setPhase('error');
+      setStatusText('Network error. Please check your connection and try again.');
+    }
+  }, [effectiveAmount, phone, pollForSuccess]);
+
+  const onShare = useCallback(async () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: FUNDRAISER.title,
+          text: `${FUNDRAISER.description} ${url}`,
+        });
+        return;
+      } catch {
+        /* user cancelled */
+      }
+    }
+    await navigator.clipboard.writeText(`${FUNDRAISER.title} — ${url}`);
+    setStatusText('Link copied to clipboard. Thank you for sharing.');
+    setTimeout(() => {
+      setStatusText('');
+      setPhase('idle');
+    }, 3000);
+  }, []);
+
+  const busy = phase === 'initiating' || phase === 'awaiting-pin';
+  const spinner = (
+    <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+  );
+
+  return (
+    <div className="min-h-screen bg-white font-sans text-stone-800 antialiased">
+      {/* Sticky header */}
+      <header className="sticky top-0 z-50 border-b border-stone-200/80 bg-white/85 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
+          <a href="#top" className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-900 text-white">
+              <CrossMark className="h-4 w-4" />
+            </span>
+            <span className="text-[15px] font-bold tracking-tight text-stone-900">
+              Sylvia's Mum Medical Fund
+            </span>
+          </a>
+          <a
+            href="#donate"
+            className="rounded-full bg-brand-900 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
+          >
+            Donate
+          </a>
+        </div>
+      </header>
+
+      {/* Hero — open layout, no card */}
+      <section id="top" className="border-b border-stone-200 bg-stone-50">
+        <div className="mx-auto max-w-5xl px-6 py-12 sm:py-24">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-600">
+            Medical Fundraiser · Kenya
+          </p>
+          <h1 className="mt-4 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-stone-900 sm:text-5xl">
+            {FUNDRAISER.title}
+          </h1>
+          <p className="mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
+            {FUNDRAISER.description}
+          </p>
+
+          {/* Stats row — open, separated by rules */}
+          <div className="mt-12 grid grid-cols-1 gap-y-8 border-t border-stone-200 pt-8 sm:grid-cols-3 sm:divide-x sm:divide-stone-200">
+            <div className="sm:pr-10">
+              <p className="text-sm font-medium uppercase tracking-wide text-stone-500">
+                Raised so far
+              </p>
+              <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-stone-900">
+                {formatKes(raisedKes)}
+              </p>
+            </div>
+            <div className="sm:px-10">
+              <p className="text-sm font-medium uppercase tracking-wide text-stone-500">
+                Fundraising target
+              </p>
+              <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-stone-900">
+                {formatKes(FUNDRAISER.targetKes)}
+              </p>
+            </div>
+            <div className="sm:pl-10">
+              <p className="text-sm font-medium uppercase tracking-wide text-stone-500">Progress</p>
+              <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-stone-900">
+                {Math.round(progress * 100)}%
+              </p>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="mt-8 h-2 overflow-hidden rounded-full bg-stone-200">
+            <div
+              className="h-full min-w-[1.5%] rounded-full bg-brand-700 transition-all duration-700"
+              style={{ width: `${progress * 100}%` }}
+            />
+          </div>
+          <p className="mt-3 text-sm text-stone-500">
+            {formatKes(remainingKes)} still needed to reach the goal.
+          </p>
+        </div>
+      </section>
+
+      {/* Donation section — two columns on desktop */}
+      <main className="mx-auto max-w-5xl px-6 py-16 sm:py-20">
+        <div className="grid grid-cols-1 gap-12 lg:grid-cols-[420px_1fr] lg:gap-16">
+          {/* Info column — below the form on mobile, left on desktop */}
+          <section className="order-2 lg:order-1">
+            <h2 className="text-2xl font-bold tracking-tight text-stone-900">How it works</h2>
+            <ol className="mt-7 space-y-7">
+              {[
+                {
+                  n: '1',
+                  title: 'Choose an amount',
+                  body: 'Select a preset contribution or enter any amount of KSh 50 and above.',
+                },
+                {
+                  n: '2',
+                  title: 'Enter your M-Pesa number',
+                  body: 'Use any Safaricom number. We send the payment request directly to your phone.',
+                },
+                {
+                  n: '3',
+                  title: 'Approve with your PIN',
+                  body: 'An M-Pesa prompt appears on your phone. Enter your PIN to complete the donation.',
+                },
+              ].map((step) => (
+                <li key={step.n} className="flex gap-4">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-white text-sm font-bold text-brand-700">
+                    {step.n}
+                  </span>
+                  <div>
+                    <p className="font-semibold text-stone-900">{step.title}</p>
+                    <p className="mt-1 text-[15px] leading-relaxed text-stone-600">{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            <hr className="my-10 border-stone-200" />
+
+            <h2 className="text-2xl font-bold tracking-tight text-stone-900">
+              Pay manually instead
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-stone-600">
+              You can also send money directly via M-Pesa using the details below.
+            </p>
+            <dl className="mt-6 divide-y divide-stone-200 border-y border-stone-200">
+              <div className="flex items-center justify-between py-4">
+                <dt className="text-sm font-medium text-stone-500">M-Pesa number</dt>
+                <dd className="text-[15px] font-bold text-stone-900">{MANUAL_MPESA.number}</dd>
+              </div>
+              <div className="flex items-center justify-between py-4">
+                <dt className="text-sm font-medium text-stone-500">Account name</dt>
+                <dd className="text-[15px] font-bold text-stone-900">{MANUAL_MPESA.name}</dd>
+              </div>
+            </dl>
+            <p className="mt-4 text-xs leading-relaxed text-stone-400">
+              Please confirm the recipient details before sending money.
+            </p>
+          </section>
+
+          {/* Donation panel — right on desktop, first on mobile */}
+          <section id="donate" className="order-1 scroll-mt-24 lg:order-2">
+            <div className="rounded-2xl border border-stone-200 bg-white p-6 sm:p-7 lg:sticky lg:top-24">
+              <h2 className="text-lg font-bold tracking-tight text-stone-900">
+                Choose your contribution
+              </h2>
+              <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+                {PRESET_AMOUNTS.map((a) => {
+                  const selected = customAmount === '' && amount === a;
+                  return (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => {
+                        setCustomAmount('');
+                        setAmount(a);
+                      }}
+                      className={`rounded-lg border py-2.5 text-sm font-semibold transition-colors ${
+                        selected
+                          ? 'border-brand-900 bg-brand-900 text-white'
+                          : 'border-stone-300 bg-white text-stone-700 hover:border-brand-600 hover:text-brand-700'
+                      }`}
+                    >
+                      {a.toLocaleString('en-KE')}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <input
+                inputMode="numeric"
+                placeholder="Other amount (min KSh 50)"
+                value={customAmount}
+                onChange={(e) => setCustomAmount(e.target.value.replace(/\D/g, '').slice(0, 7))}
+                className="mt-3 w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+              />
+
+              <label
+                htmlFor="mpesa-phone"
+                className="mb-1.5 mt-5 block text-xs font-bold uppercase tracking-wider text-stone-500"
+              >
+                M-Pesa phone number
+              </label>
+              <input
+                id="mpesa-phone"
+                inputMode="tel"
+                placeholder="07XX XXX XXX"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.slice(0, 16))}
+                className="w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+              />
+              <p className="mt-2 text-xs leading-relaxed text-stone-500">
+                We will send an M-Pesa prompt to this number for approval.
+              </p>
+
+              <button
+                type="button"
+                onClick={onDonate}
+                disabled={busy}
+                className="mt-6 flex w-full items-center justify-center rounded-lg bg-brand-900 py-3.5 text-base font-bold text-white transition-colors hover:bg-brand-700 active:bg-brand-800 disabled:opacity-70"
+              >
+                {busy ? spinner : 'Donate Now'}
+              </button>
+
+              {(phase === 'error' || phase === 'failed') && statusText !== '' && (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3.5 text-center text-sm leading-relaxed text-red-800">
+                  {statusText}
+                </div>
+              )}
+              {phase === 'success' && (
+                <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3.5 text-center">
+                  <p className="text-sm font-bold text-stone-900">
+                    Your donation has been received.
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-stone-600">
+                    Thank you for standing with the family during this difficult time.
+                  </p>
+                </div>
+              )}
+              {phase === 'awaiting-pin' && (
+                <div className="mt-4 flex flex-col items-center rounded-lg border border-stone-200 bg-stone-50 p-3.5 text-center">
+                  <p className="text-sm leading-relaxed text-stone-700">{statusText}</p>
+                  <span className="mt-3 inline-block h-5 w-5 animate-spin rounded-full border-2 border-stone-300 border-t-brand-700" />
+                </div>
+              )}
+              {phase === 'idle' && statusText !== '' && (
+                <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3.5 text-center text-sm leading-relaxed text-stone-700">
+                  {statusText}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onShare}
+                className="mx-auto mt-4 block text-sm font-semibold text-brand-700 hover:text-brand-900"
+              >
+                Share this fundraiser
+              </button>
+
+              <p className="mt-5 border-t border-stone-100 pt-4 text-center text-xs leading-relaxed text-stone-400">
+                Payments are processed securely by Paystack. This page never stores your M-Pesa PIN.
+              </p>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-stone-200 bg-stone-50">
+        <div className="mx-auto flex max-w-5xl flex-col items-center gap-2 px-6 py-10 text-center">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-900 text-white">
+            <CrossMark className="h-3.5 w-3.5" />
+          </span>
+          <p className="text-sm font-semibold text-stone-700">
+            Medical Fund for Sylvia's Mum
+          </p>
+          <p className="text-xs text-stone-400">Thank you for your support</p>
+        </div>
+      </footer>
+    </div>
+  );
+}

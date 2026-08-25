@@ -1,0 +1,11 @@
+# suppress interactive prompts
+project_id = "medical-fund"
+
+[functions.initiate-payment]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+[functions.paystack-webhook]
+verify_jwt = false
