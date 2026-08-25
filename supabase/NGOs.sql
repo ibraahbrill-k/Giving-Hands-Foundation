@@ -1,5 +1,8 @@
 -- ============================================================
--- Medical Fund for Sylvia's Mum - schema
+-- NGOs.sql — Giving Hands Foundation
+-- Complete database schema for the Sylvia's Mum Medical Fund
+-- (consolidates all previous migrations — run this once)
+--
 -- Money-safety rules baked in:
 --   * amounts stored in KES cents (integer, no float math)
 --   * CHECK constraints bound every amount to sane limits
@@ -29,8 +32,9 @@ create table public.donations (
   paystack_id    bigint,                             -- Paystack transaction id (set on webhook)
   amount_cents   integer not null check (amount_cents >= 100 and amount_cents <= 20000000), -- KSh 1 .. KSh 200,000
   currency       text not null default 'KES' check (currency = 'KES'),
-  donor_phone    text not null check (donor_phone ~ '^\+?254[17]\d{8}$'),
+  donor_phone    text check (donor_phone is null or donor_phone ~ '^\+?254[17]\d{8}$'), -- null for card donors
   donor_name     text,
+  client_ip      text,                               -- used for rate limiting
   status         text not null default 'pending'
                  check (status in ('pending','success','failed','abandoned')),
   failure_reason text,
@@ -40,10 +44,13 @@ create table public.donations (
 
 create index donations_fundraiser_status_idx on public.donations (fundraiser_id, status);
 create index donations_reference_idx on public.donations (reference);
+create index donations_phone_created_idx on public.donations (donor_phone, created_at desc);
+create index donations_ip_created_idx on public.donations (client_ip, created_at desc);
 
 -- ------------------------------------------------------------
 -- Guard: a donation may only move forward, and only once to success.
 -- Prevents double-crediting from webhook + verify racing each other.
+-- Also freezes immutable fields after creation.
 -- ------------------------------------------------------------
 create or replace function public.guard_donation_transition()
 returns trigger language plpgsql as $$
@@ -70,6 +77,7 @@ for each row execute function public.guard_donation_transition();
 
 -- ------------------------------------------------------------
 -- Public raised total: SECURITY DEFINER so anon never needs row access.
+-- Only successful payments count.
 -- ------------------------------------------------------------
 create or replace function public.get_raised_total(fundraiser uuid)
 returns bigint
@@ -97,7 +105,7 @@ using (is_active = true);
 -- Only the service_role (edge functions) touches this table.
 
 -- ------------------------------------------------------------
--- Seed the fundraiser
+-- Seed the fundraiser — target KSh 150,000
 -- ------------------------------------------------------------
 insert into public.fundraisers (slug, title, description, beneficiary, target_cents)
 values (
@@ -105,6 +113,6 @@ values (
   'Medical Fund for Sylvia''s Mum',
   'Your contribution can help cover urgent medical expenses. Every amount, big or small, makes a difference.',
   'Sylvia''s Mum',
-  25000000  -- KSh 250,000 in cents
+  15000000  -- KSh 150,000 in cents
 )
 on conflict (slug) do nothing;
