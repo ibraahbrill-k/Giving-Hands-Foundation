@@ -510,7 +510,11 @@ export default function App() {
                   Card
                   <span className={`ml-0.5 flex items-center gap-1 rounded-full px-1.5 py-0.5 ${method === 'card' ? 'bg-white' : 'bg-stone-100'}`}>
                     <img src="/images/visa.svg" alt="Visa" className="h-2.5 w-auto" />
-                    <img src="/images/mastercard.svg" alt="Mastercard" className="h-3 w-auto" />
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg"
+                      alt="Mastercard"
+                      className="h-3 w-auto"
+                    />
                   </span>
                 </button>
               </div>
@@ -618,7 +622,11 @@ export default function App() {
                   <img src="/images/mpesa.png" alt="M-Pesa" className="h-4 w-auto" />
                   <img src="/images/airtel.png" alt="Airtel Money" className="h-4 w-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   <img src="/images/visa.svg" alt="Visa" className="h-3 w-auto" />
-                  <img src="/images/mastercard.svg" alt="Mastercard" className="h-3.5 w-auto" />
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg"
+                    alt="Mastercard"
+                    className="h-3.5 w-auto"
+                  />
                 </span>
               </div>
 
