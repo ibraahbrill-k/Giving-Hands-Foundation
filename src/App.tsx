@@ -509,16 +509,8 @@ export default function App() {
                   </svg>
                   Card
                   <span className={`ml-0.5 flex items-center gap-1 rounded-full px-1.5 py-0.5 ${method === 'card' ? 'bg-white' : 'bg-stone-100'}`}>
-                    <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg"
-                      alt="Visa"
-                      className="h-2.5 w-auto"
-                    />
-                    <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg"
-                      alt="Mastercard"
-                      className="h-3 w-auto"
-                    />
+                    <img src="/images/visa.svg" alt="Visa" className="h-2.5 w-auto" />
+                    <img src="/images/mastercard.svg" alt="Mastercard" className="h-3 w-auto" />
                   </span>
                 </button>
               </div>
@@ -547,27 +539,12 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Network tiles */}
-                  <div className="mt-4 grid grid-cols-2 gap-2.5">
-                    {(['mpesa', 'airtel'] as const).map((net) => {
-                      const active = network === net;
-                      return (
-                        <div
-                          key={net}
-                          className={`flex h-16 items-center justify-center rounded-lg border bg-white transition-all ${
-                            active ? 'border-brand-900 ring-1 ring-brand-900' : 'border-stone-200 opacity-50'
-                          }`}
-                        >
-                          <NetworkIcon net={net} className="h-7 w-auto" />
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-xs leading-relaxed text-stone-500">
-                    {network
-                      ? `Paying with ${network === 'mpesa' ? 'M-Pesa' : 'Airtel Money'} — approve the prompt on your phone to complete the donation.`
-                      : 'We detect your network automatically from the number you enter.'}
-                  </p>
+              {method === 'mobile' && (
+                <p className="mt-2 text-xs leading-relaxed text-stone-500">
+                  We detect your network automatically from the number you enter, then send you a
+                  prompt to approve.
+                </p>
+              )}
                 </>
               ) : (
                 <p className="mt-4 text-xs leading-relaxed text-stone-500">
@@ -631,6 +608,19 @@ export default function App() {
               >
                 Share this fundraiser
               </button>
+
+              {/* Accepted methods — informational, below the action button */}
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+                  We accept
+                </span>
+                <span className="flex items-center gap-3 opacity-60">
+                  <img src="/images/mpesa.png" alt="M-Pesa" className="h-4 w-auto" />
+                  <img src="/images/airtel.png" alt="Airtel Money" className="h-4 w-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  <img src="/images/visa.svg" alt="Visa" className="h-3 w-auto" />
+                  <img src="/images/mastercard.svg" alt="Mastercard" className="h-3.5 w-auto" />
+                </span>
+              </div>
 
               <p className="mt-5 border-t border-stone-100 pt-4 text-center text-xs leading-relaxed text-stone-400">
                 Payments are processed securely by Paystack. This page never stores your M-Pesa PIN.
