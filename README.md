@@ -1,45 +1,64 @@
-# Medical Fund for Sylvia's Mum
+# Giving Hands Foundation — Medical Fund for Sylvia's Mum
 
-A secure donation website built with **React (React Native Web)** + **Vite**, backed by **Supabase** with **Paystack** M-Pesa STK Push for Kenyan payments (KES).
+A secure donation website built with **React + TypeScript + Tailwind CSS** and **Vite**, backed by **Supabase** edge functions with **Paystack** handling M-Pesa, Airtel Money, and Visa/Mastercard payments in KES.
 
 ## Project structure
 
 ```
-├── index.html
-├── src/                      # React Native Web UI
-│   ├── App.tsx               # Fundraiser page
-│   ├── lib/config.ts         # Campaign info, preset amounts, formatting
-│   └── lib/supabase.ts       # Supabase client + edge function calls
-├── supabase/
-│   ├── migrations/0001_init.sql
-│   └── functions/
-│       ├── initiate-payment/   # Creates donation, triggers STK push
-│       ├── verify-payment/     # Client polls this while waiting
-│       └── paystack-webhook/   # Server-to-server truth (HMAC verified)
+├── index.html                    # Entry point, fonts, favicon, Paystack Inline script
+├── src/
+│   ├── App.tsx                   # Fundraiser page, donation flow, thank-you screen
+│   ├── index.css                 # Tailwind v4 theme (brand palette, animations)
+│   ├── lib/config.ts             # Campaign info, preset amounts, network detection
+│   └── lib/supabase.ts           # Supabase URL/key constants + edge function calls
+├── public/images/                # logo.png, mpesa.png, airtel.png, visa.svg
+└── supabase/
+    ├── NGOs.sql                  # Complete database schema (single source of truth)
+    ├── config.toml
+    └── functions/
+        ├── initiate-payment/     # Validates input, rate limits, starts charge/checkout
+        ├── verify-payment/       # Polls Paystack for final status
+        └── paystack-webhook/     # HMAC-verified server-to-server confirmation
 ```
 
-## How money is kept safe
+## Payment methods supported
 
-1. **No secrets in the browser.** Only the Supabase anon key reaches the client. The Paystack secret key lives only in Supabase edge function env (`supabase secrets set`).
-2. **Server-side validation.** Amount and phone are validated in the edge function — the client is never trusted.
-3. **Paystack webhook signature check.** Every webhook is authenticated via HMAC-SHA512 of the raw body using the secret key. Forged webhooks are rejected with 401.
-4. **Amount match on success.** A payment only counts as "success" if Paystack's reported amount AND currency exactly equal what we stored when creating the donation. Mismatches are flagged failed.
-5. **Idempotency + double-credit guard.** Each donation has a unique reference; a DB trigger forbids reopening or double-finalizing a row (`supabase/migrations/0001_init.sql`).
-6. **RLS lockdown.** `donations` table has zero policies for anon/authenticated — nobody can read donor phones or tamper with rows from the client. Totals are exposed through a `SECURITY DEFINER` function only.
+| Method | Flow |
+|---|---|
+| Safaricom M-Pesa | STK push to donor's phone, approved with PIN |
+| Airtel Money | Prompt sent to donor's phone (073x / 075x numbers) |
+| Visa / Mastercard | Secure Paystack-hosted popup on the page itself |
+
+Network detection happens from the phone prefix; unsupported networks are pointed toward card payment.
+
+## Security measures in place
+
+1. **No payment secrets in the browser.** Only the Supabase publishable key reaches the client. The Paystack secret key lives exclusively in Supabase edge function secrets.
+2. **Server-side validation.** Amounts and phone numbers are validated in the edge function; the client is never trusted.
+3. **Rate limiting.** Maximum 3 attempts per phone per 15 minutes and 15 attempts per IP per hour, enforced server-side.
+4. **HMAC-SHA512 webhook authentication.** Every webhook is verified with constant-time comparison against Paystack's signature header.
+5. **Amount match on success.** A payment is only marked successful when Paystack's reported amount and currency exactly equal the stored values. Mismatches are flagged failed.
+6. **Double-credit guard.** A database trigger prevents any donation row from being finalized twice or reopened after success.
+7. **RLS lockdown.** The donations table has zero policies for anon/authenticated roles — donor data cannot be read or modified from the client. Totals are exposed through a `SECURITY DEFINER` function only.
+8. **Only successful payments count.** "Raised so far" sums rows where `status = 'success'`, which requires Paystack confirmation.
+
+## Database
+
+`supabase/NGOs.sql` contains the complete schema — tables, indexes, guard trigger, RLS policies, raised-total function, and the seeded fundraiser (target KSh 150,000). It consolidates all earlier migrations into one file and can be pasted into the Supabase SQL editor to rebuild the database from scratch at any time.
 
 ## Setup
 
-### 1. Supabase project
+### 1. Supabase
 ```bash
 npm i -g supabase
 supabase login
-supabase link --project-ref YOUR_PROJECT_REF
-supabase db push            # applies migrations/0001_init.sql
+supabase link --project-ref pmzuajshiyxjhcirosky
 ```
+Then paste `supabase/NGOs.sql` into the Supabase SQL editor and run it.
 
-### 2. Paystack keys into Supabase env
+### 2. Paystack secret key
 ```bash
-supabase secrets set PAYSTACK_SECRET_KEY=sk_live_xxx      # sk_test_... first!
+supabase secrets set PAYSTACK_SECRET_KEY=sk_test_xxx    # sk_live_xxx for production
 ```
 
 ### 3. Deploy edge functions
@@ -49,30 +68,33 @@ supabase functions deploy verify-payment
 supabase functions deploy paystack-webhook
 ```
 
-### 4. Register the webhook URL at Paystack
-Dashboard → Settings → API Keys & Webhooks:
-`https://YOUR-PROJECT.supabase.co/functions/v1/paystack-webhook`
+### 4. Register the webhook in Paystack
+Dashboard → Settings → API Keys & Webhooks → Webhook URL:
+`https://pmzuajshiyxjhcirosky.supabase.co/functions/v1/paystack-webhook`
+(Test Webhook URL for test keys, Live Webhook URL for live keys.)
 
-### 5. Frontend config (already done)
-The Supabase URL and publishable key are hardcoded in `src/lib/supabase.ts` — they are public by design, so no `.env` or Netlify environment variables are needed. Just push to GitHub and connect Netlify (build command `npm run build`, publish directory `dist`).
+### 5. Frontend
+The Supabase URL and publishable key are hardcoded in `src/lib/supabase.ts` — they are public by design, so no environment variables are required anywhere. Netlify build settings: command `npm run build`, publish directory `dist`.
 
-### 6. Run
+## Running locally
 ```bash
 npm install
 npm run dev        # http://localhost:3000
 npm run build      # production build to dist/
 ```
 
-## Payment flow (M-Pesa STK push)
+## Testing in Paystack test mode
 
-1. Donor picks a preset amount (or types one ≥ KSh 50) and enters their Safaricom number.
-2. **Donate Now** → `initiate-payment`: validates input, stores a `pending` donation, calls Paystack `POST /charge` with `currency: KES`, `mobile_money: { provider: mpesa }`.
-3. Donator's phone gets an M-Pesa prompt → they enter their PIN.
-4. Site polls `verify-payment`; Paystack also fires `charge.success` to the webhook. Whichever arrives first updates the row — both paths verify amounts against our stored record.
-5. Progress bar refreshes from the raised-total function.
+- **M-Pesa:** only the official test number succeeds instantly — `0710 000 000`. Other numbers receive a gateway decline.
+- **Airtel Money:** charges start but the sandbox declines completion; full verification works with live keys.
+- **Card:** test card `4084 0840 8408 4081`, any future expiry, CVV `408`, PIN `0000`.
 
-## Notes
+Test transactions never move real money and are recorded separately from live ones.
 
-- Test mode: use a Safaricom sandbox number per Paystack docs before going live.
-- Switch the seeded fundraiser details in `src/lib/config.ts` and the DB seed in the migration once you have the verified recipient details.
-- Manual M-Pesa fallback details are shown on the page ("Pay manually instead") — replace `MANUAL_MPESA` in `config.ts` with verified numbers.
+## Go-live checklist
+
+1. Wipe test data: `DELETE FROM public.donations;`
+2. `supabase secrets set PAYSTACK_SECRET_KEY=sk_live_xxx`
+3. Set the **Live Webhook URL** in Paystack to the same functions URL
+4. Confirm Netlify auto-deploys from GitHub (`main` branch)
+5. Make one small live donation as final end-to-end confirmation
