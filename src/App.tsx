@@ -149,10 +149,7 @@ export default function App() {
               className="h-9 w-9 rounded-lg object-contain"
             />
             <span className="text-[15px] font-bold tracking-tight text-stone-900">
-              Giving Hands
-              <span className="font-medium text-stone-500">
-                {' '}· Sylvia&apos;s Mum Medical Fund
-              </span>
+              Giving Hands Foundation
             </span>
           </a>
           <a
