@@ -98,7 +98,7 @@ export default function App() {
     let attempts = 0;
     pollRef.current = setInterval(async () => {
       attempts += 1;
-      if (attempts > 30) {
+      if (attempts > 45) { // ~3 minutes — matches Paystack's 180s prompt window
         clearInterval(pollRef.current!);
         setPhase('failed');
         setStatusText(
