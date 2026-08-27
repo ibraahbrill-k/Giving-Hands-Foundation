@@ -1,19 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FUNDRAISER, MANUAL_MPESA, PRESET_AMOUNTS, detectNetwork, formatKes } from './lib/config';
+import { FUNDRAISER, MANUAL_MPESA, PRESET_AMOUNTS, formatKes } from './lib/config';
 import { fetchRaisedTotal, initiatePayment, verifyPayment } from './lib/supabase';
 
 type Phase = 'idle' | 'initiating' | 'awaiting-pin' | 'success' | 'failed' | 'error';
-
-function NetworkIcon({ net, className = 'h-6 w-auto' }: { net: 'mpesa' | 'airtel'; className?: string }) {
-  return (
-    <img
-      src={net === 'mpesa' ? '/images/mpesa.png' : '/images/airtel.png'}
-      alt={net === 'mpesa' ? 'M-Pesa' : 'Airtel Money'}
-      className={className}
-      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-    />
-  );
-}
 
 function CrossMark({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -27,15 +16,12 @@ export default function App() {
   const [raisedCents, setRaisedCents] = useState(0);
   const [amount, setAmount] = useState(500);
   const [customAmount, setCustomAmount] = useState('');
-  const [phone, setPhone] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [statusText, setStatusText] = useState('');
-  const [showManual, setShowManual] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
   const [paidReference, setPaidReference] = useState('');
   const [method, setMethod] = useState<'mobile' | 'card'>('mobile');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // Returning from Paystack card checkout: ?reference=... in the URL
   useEffect(() => {
     const ref = new URLSearchParams(window.location.search).get('reference');
@@ -94,15 +80,15 @@ export default function App() {
 
   const pollForSuccess = useCallback((reference: string) => {
     setPhase('awaiting-pin');
-    setStatusText('An M-Pesa prompt has been sent to your phone. Enter your PIN to confirm.');
+    setStatusText('Processing your payment. Please wait...');
     let attempts = 0;
     pollRef.current = setInterval(async () => {
       attempts += 1;
-      if (attempts > 45) { // ~3 minutes — matches Paystack's 180s prompt window
+      if (attempts > 45) { // ~3 minutes — timeout for payment completion
         clearInterval(pollRef.current!);
         setPhase('failed');
         setStatusText(
-          `The request timed out. If you already entered your PIN, your contribution is safe — reach out to us with reference ${reference}.`
+          `The request timed out. If you completed your payment, your contribution is safe — reach out to us with reference ${reference}.`
         );
         return;
       }
@@ -121,7 +107,7 @@ export default function App() {
           clearInterval(pollRef.current!);
           setPhase('failed');
           setStatusText(
-            'The payment was not completed. No money has left your account unless you confirmed the prompt.'
+            'The payment was not completed. No money has left your account.'
           );
         }
       } catch {
@@ -131,9 +117,9 @@ export default function App() {
   }, []);
 
   const onDonate = useCallback(async () => {
-    if (effectiveAmount < 50) {
+    if (effectiveAmount < 1) {
       setPhase('error');
-      setStatusText('Please choose an amount of at least KSh 50.');
+      setStatusText('Please choose an amount of at least KSh 1.');
       return;
     }
     setPhase('initiating');
@@ -141,7 +127,7 @@ export default function App() {
     try {
       const res = await initiatePayment(
         effectiveAmount,
-        method === 'card' ? '' : phone,
+        '',
         method
       );
       if (res.error) {
@@ -150,45 +136,34 @@ export default function App() {
         return;
       }
 
-      if (method === 'card') {
-        // Paystack Inline popup — secure card form hosted by Paystack
-        const PaystackPop = (window as any).PaystackPop;
-        if (!PaystackPop) {
-          setPhase('error');
-          setStatusText('Payment window could not load. Please check your connection.');
-          return;
-        }
-        const handler = PaystackPop.setup({
-          key: 'pk_live_1914b9371b9787974916c7f15d3f885c5c943894',
-          email: res.email,
-          amount: effectiveAmount * 100,
-          currency: 'KES',
-          ref: res.reference,
-          callback: (response: any) => {
-            setPaidAmount(effectiveAmount);
-            pollForSuccess(response.reference);
-          },
-          onClose: () => {
-            setPhase('idle');
-            setStatusText('');
-          },
-        });
-        handler.openIframe();
-        return;
-      }
-
-      if (!res.reference) {
+      const PaystackPop = (window as any).PaystackPop;
+      if (!PaystackPop) {
         setPhase('error');
-        setStatusText('Could not start the payment. Please try again.');
+        setStatusText('Payment window could not load. Please check your connection.');
         return;
       }
-      setPaidAmount(effectiveAmount);
-      pollForSuccess(res.reference);
+      const handler = PaystackPop.setup({
+        key: 'pk_live_1914b9371b9787974916c7f15d3f885c5c943894',
+        email: res.email,
+        amount: effectiveAmount * 100,
+        currency: 'KES',
+        ref: res.reference,
+        ...(method === 'mobile' ? { channels: ['mobile_money'] } : {}),
+        callback: (response: any) => {
+          setPaidAmount(effectiveAmount);
+          pollForSuccess(response.reference);
+        },
+        onClose: () => {
+          setPhase('idle');
+          setStatusText('');
+        },
+      });
+      handler.openIframe();
     } catch {
       setPhase('error');
       setStatusText('Network error. Please check your connection and try again.');
     }
-  }, [effectiveAmount, phone, method, pollForSuccess]);
+  }, [effectiveAmount, method, pollForSuccess]);
 
   const onShare = useCallback(async () => {
     const url = window.location.href;
@@ -212,11 +187,9 @@ export default function App() {
   }, []);
 
   const busy = phase === 'initiating' || phase === 'awaiting-pin';
-  const network = detectNetwork(phone);
 
   const onDonateAgain = useCallback(() => {
     setPhase('idle');
-    setPhone('');
     setStatusText('');
     window.scrollTo({ top: 0 });
   }, []);
@@ -396,17 +369,17 @@ export default function App() {
                 {
                   n: '1',
                   title: 'Choose an amount',
-                  body: 'Select a preset contribution or enter any amount of KSh 50 and above.',
+                  body: 'Select a preset contribution or enter any amount of KSh 1 and above.',
                 },
                 {
                   n: '2',
-                  title: 'Enter your M-Pesa number',
-                  body: 'Use any Safaricom number. We send the payment request directly to your phone.',
+                  title: 'Select payment method',
+                  body: 'Choose Card or Mobile Money. For Mobile Money, Paystack will open a secure checkout.',
                 },
                 {
                   n: '3',
-                  title: 'Approve with your PIN',
-                  body: 'An M-Pesa prompt appears on your phone. Enter your PIN to complete the donation.',
+                  title: 'Complete payment',
+                  body: 'Enter your payment details in the Paystack popup to confirm your donation.',
                 },
               ].map((step) => (
                 <li key={step.n} className="flex gap-4">
@@ -520,36 +493,10 @@ export default function App() {
               </div>
 
               {method === 'mobile' ? (
-                <>
-                  <label
-                    htmlFor="mpesa-phone"
-                    className="mb-1.5 mt-5 block text-xs font-bold uppercase tracking-wider text-stone-500"
-                  >
-                    Phone number — M-Pesa or Airtel Money
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="mpesa-phone"
-                      inputMode="tel"
-                      placeholder="07XX XXX XXX"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value.slice(0, 16))}
-                      className="w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 pr-24 text-base outline-none transition-colors placeholder:text-stone-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
-                    />
-                    {network && (
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold uppercase tracking-wide text-brand-700">
-                        {network === 'mpesa' ? 'Safaricom' : 'Airtel'}
-                      </span>
-                    )}
-                  </div>
-
-              {method === 'mobile' && (
-                <p className="mt-2 text-xs leading-relaxed text-stone-500">
-                  We detect your network automatically from the number you enter, then send you a
-                  prompt to approve.
+                <p className="mt-4 text-xs leading-relaxed text-stone-500">
+                  You will be redirected to Paystack&apos;s secure checkout to enter your M-Pesa
+                  or Airtel Money number. Your details never touch this website.
                 </p>
-              )}
-                </>
               ) : (
                 <p className="mt-4 text-xs leading-relaxed text-stone-500">
                   You will be redirected to Paystack&apos;s secure checkout to enter your Visa or
@@ -573,18 +520,16 @@ export default function App() {
                     </svg>
                     Donate with Card
                   </>
-                ) : network ? (
+                ) : (
                   <>
                     <img
-                      src={network === 'mpesa' ? '/images/mpesa.png' : '/images/airtel.png'}
+                      src="/images/mpesa.png"
                       alt=""
                       className="h-6 w-auto"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                     />
-                    Donate with {network === 'mpesa' ? 'M-Pesa' : 'Airtel Money'}
+                    Donate with Mobile Money
                   </>
-                ) : (
-                  'Donate Now'
                 )}
               </button>
 

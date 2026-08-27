@@ -15,7 +15,7 @@ const CORS = {
 
 // Server-side whitelist of allowed amounts (KES). Never trust the client.
 const ALLOWED_AMOUNTS_KES = [200, 500, 1000, 2000, 5000, 10000, 15000, 20000];
-const MIN_KES = 50;
+const MIN_KES = 1;
 const MAX_KES = 200000;
 
 // Rate limits: max donation attempts per window
@@ -60,9 +60,8 @@ Deno.serve(async (req) => {
   if (rawBody.length > 1024) return json({ error: "payload too large" }, 413);
 
   try {
-    const { amount, phone, method } = JSON.parse(rawBody);
+    const { amount, phone } = JSON.parse(rawBody);
     const amountKes = Math.round(Number(amount));
-    const payMethod = method === "card" ? "card" : "mobile";
     const normalized = normalizeKePhone(String(phone ?? ""));
 
     // ---- validation (server-side, authoritative) ----
@@ -72,26 +71,6 @@ Deno.serve(async (req) => {
       !(amountKes >= MIN_KES && amountKes <= MAX_KES)
     ) {
       return json({ error: `Amount must be between KSh ${MIN_KES} and KSh ${MAX_KES}` }, 400);
-    }
-    if (payMethod === "mobile" && !normalized) {
-      return json(
-        { error: "Enter a valid Safaricom or Airtel number, e.g. 0728 249 030" },
-        400
-      );
-    }
-
-    // network detection: Safaricom -> M-Pesa, Airtel -> Airtel Money
-    let provider = "mpesa_offline";
-    if (payMethod === "mobile") {
-      const local = normalized.slice(3);
-      const p = local.slice(0, 2);
-      if (["73", "75"].includes(p)) provider = "atl"; // Airtel Money
-      else if (!["70", "71", "72", "74", "10", "11"].includes(p)) {
-        return json(
-          { error: "Only Safaricom M-Pesa and Airtel Money numbers are supported. For other networks, please pay by card." },
-          400
-        );
-      }
     }
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -135,88 +114,26 @@ Deno.serve(async (req) => {
 
     const donorEmail = `${normalized || `guest-${Date.now()}`}@donors.givinghandsfoundation.org`;
 
-    let donationId: string;
-    if (payMethod === "mobile") {
-      const { data: donation, error: dErr } = await supabase
-        .from("donations")
-        .insert({
-          fundraiser_id: fundraiser.id,
-          reference,
-          amount_cents: amountKes * 100,
-          donor_phone: normalized,
-          client_ip: clientIp,
-        })
-        .select("id")
-        .single();
-      if (dErr) return json({ error: "Could not record donation" }, 500);
-      donationId = donation.id;
-    } else {
-      const { data: donation, error: dErr } = await supabase
-        .from("donations")
-        .insert({
-          fundraiser_id: fundraiser.id,
-          reference,
-          amount_cents: amountKes * 100,
-          donor_phone: null, // card donors have no mobile number
-          client_ip: clientIp,
-        })
-        .select("id")
-        .single();
-      if (dErr) {
-        console.error(dErr);
-        return json({ error: "Could not record donation" }, 500);
-      }
-      donationId = donation.id;
-    }
-
-    let psData: any;
-
-    if (payMethod === "card") {
-      // ---- Card: donation recorded, Paystack Inline popup collects card details ----
-      return json({ reference, email: donorEmail });
-    }
-
-    // ---- Paystack mobile money charge (M-Pesa / Airtel Money STK push) ----
-    const psRes = await fetch("https://api.paystack.co/charge", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email: donorEmail,
-        amount: amountKes * 100, // subunit: KES cents
-        currency: "KES",
-        reference,
-        mobile_money: { phone: normalized, provider },
-        metadata: { reference, donation_id: donationId },
-      }),
-    });
-
-    psData = await psRes.json();
-
-    if (!psData.status) {
-      // Some gateways return status:false with "Charge attempted" while the
-      // prompt is actually in flight — only mark failed when Paystack says so.
-      const inFlight =
-        psData.message === "Charge attempted" ||
-        (psData.data && !["failed", "abandoned"].includes(psData.data.status));
-      if (!inFlight) {
-        await supabase
-          .from("donations")
-          .update({ status: "failed", failure_reason: String(psData.message ?? "paystack error").slice(0, 500) })
-          .eq("reference", reference);
-        return json({ error: psData.data?.gateway_response ?? psData.message ?? "Payment could not be started" }, 502);
-      }
-    }
-
-    return json({
+    const donationData: Record<string, unknown> = {
+      fundraiser_id: fundraiser.id,
       reference,
-      status: psData.data?.status,
-      display_text:
-        psData.data?.display_text ??
-        "Check your phone and enter your M-Pesa PIN to complete the payment.",
-    });
+      amount_cents: amountKes * 100,
+      client_ip: clientIp,
+    };
+    if (normalized) {
+      donationData.donor_phone = normalized;
+    }
+    const { data: donation, error: dErr } = await supabase
+      .from("donations")
+      .insert(donationData)
+      .select("id")
+      .single();
+    if (dErr) {
+      console.error(dErr);
+      return json({ error: "Could not record donation" }, 500);
+    }
+
+    return json({ reference, email: donorEmail });
   } catch (e) {
     console.error(e);
     return json({ error: "Unexpected server error" }, 500);
