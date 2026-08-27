@@ -71,13 +71,12 @@ export default function App() {
     []
   );
 
-  const effectiveAmount =
-    customAmount !== '' ? Math.round(Number(customAmount.replace(/\D/g, '')) || 0) : amount;
-
   const raisedKes = Math.floor(raisedCents / 100);
   const progress = Math.min(1, raisedKes / FUNDRAISER.targetKes);
   const remainingKes = Math.max(0, FUNDRAISER.targetKes - raisedKes);
 
+  const effectiveAmount =
+    customAmount !== '' ? Math.round(Number(customAmount.replace(/\D/g, '')) || 0) : amount;
   const pollForSuccess = useCallback((reference: string) => {
     setPhase('awaiting-pin');
     setStatusText('Processing your payment. Please wait...');
@@ -340,7 +339,7 @@ export default function App() {
             <div className="sm:pl-10">
               <p className="text-sm font-medium uppercase tracking-wide text-stone-500">Progress</p>
               <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-stone-900">
-                {Math.round(progress * 100)}%
+                {progress < 0.01 ? (progress * 100).toFixed(2) : Math.round(progress * 100)}%
               </p>
             </div>
           </div>
@@ -348,7 +347,7 @@ export default function App() {
           {/* Progress bar */}
           <div className="mt-8 h-2 overflow-hidden rounded-full bg-stone-200">
             <div
-              className="h-full min-w-[1.5%] rounded-full bg-brand-700 transition-all duration-700"
+              className="h-full min-w-[2px] rounded-full bg-brand-700 transition-all duration-700"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
