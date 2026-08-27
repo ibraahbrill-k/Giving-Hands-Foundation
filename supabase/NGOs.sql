@@ -1,5 +1,5 @@
 -- ============================================================
--- NGOs.sql — Giving Hands Foundation
+-- NGOs.sql — Better Life
 -- Complete database schema for the Sylvia's Mum Medical Fund
 -- (consolidates all previous migrations — run this once)
 --

@@ -1,4 +1,4 @@
-# Giving Hands Foundation — Medical Fund for Sylvia's Mum
+# Better Life — Medical Fund for Sylvia's Mum
 
 A secure donation website built with **React + TypeScript + Tailwind CSS** and **Vite**, backed by **Supabase** edge functions with **Paystack** handling M-Pesa, Airtel Money, and Visa/Mastercard payments in KES.
 
@@ -58,7 +58,7 @@ Then paste `supabase/NGOs.sql` into the Supabase SQL editor and run it.
 
 ### 2. Paystack secret key
 ```bash
-supabase secrets set PAYSTACK_SECRET_KEY=sk_test_xxx    # sk_live_xxx for production
+supabase secrets set PAYSTACK_SECRET_KEY=sk_live_xxx
 ```
 
 ### 3. Deploy edge functions

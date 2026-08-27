@@ -159,7 +159,7 @@ export default function App() {
           return;
         }
         const handler = PaystackPop.setup({
-          key: 'pk_test_b6a603da841fe976938397d62d077607a143bc02',
+          key: 'pk_live_1914b9371b9787974916c7f15d3f885c5c943894',
           email: res.email,
           amount: effectiveAmount * 100,
           currency: 'KES',
@@ -232,11 +232,11 @@ export default function App() {
           <a href="#top" className="flex items-center gap-2.5">
             <img
               src="/images/logo.png"
-              alt="Giving Hands Foundation logo"
+              alt="Better Life logo"
               className="h-9 w-9 rounded-lg object-contain"
             />
             <span className="text-[15px] font-bold tracking-tight text-stone-900">
-              Giving Hands Foundation
+              Better Life
             </span>
           </a>
           <a
@@ -647,7 +647,7 @@ export default function App() {
             <CrossMark className="h-3.5 w-3.5" />
           </span>
           <p className="text-sm font-semibold text-stone-700">
-            Giving Hands Foundation · Medical Fund for Sylvia&apos;s Mum
+            Better Life · Medical Fund for Sylvia&apos;s Mum
           </p>
           <p className="text-xs text-stone-400">Thank you for your support</p>
         </div>
